@@ -5,7 +5,7 @@ import { getNetworkName, hydrateNetwork } from './network';
 import { clearSppDatabase } from './privacy/storage';
 // Wallet-derived AsyncStorage keys, imported from the module that owns each one
 // rather than repeated as string literals. A rename is then a single edit, and
-// leaving a key out of WALLET_CACHE_KEYS has to be an explicit decision — the
+// leaving a key out of walletCacheKeys() has to be an explicit decision — the
 // reset test fails until the list matches the owners.
 import { OUTBOX_STORAGE_KEY } from './outbox';
 import { WALLETCONNECT_SESSIONS_KEY } from './walletConnect';
@@ -158,32 +158,45 @@ export const SESSION_KEYS = [
  *
  * Most are removed unsuffixed, because they do not carry a per-network suffix
  * in the rest of the app. The few that do are listed in
- * {@link NETWORK_SCOPED_WALLET_CACHE_KEYS} and removed with the active network's
+ * {@link networkScopedWalletCacheKeys} and removed with the active network's
  * suffix, so a reset never reaches the other network's copy.
+ *
+ * Returned from a function rather than held in a module-level array, and this is
+ * load-bearing: `walletConnect`, `recovery` and `feePayerSource` all import from
+ * `walletStore`, so importing their key constants here closes an import cycle.
+ * Whenever one of those modules is the one that enters the cycle, its body has
+ * not run yet at the moment this module is evaluated, and a module-level array
+ * captures `undefined` for its keys -- `resetWallet` then deleted the literal
+ * key `"undefined"` and left `veil_fee_payer_source` on the device. Reading the
+ * constants inside a function defers them to call time, by which point every
+ * module is fully initialised whichever one was entered first.
  */
-export const WALLET_CACHE_KEYS = [
-  OUTBOX_STORAGE_KEY,
-  WALLETCONNECT_SESSIONS_KEY,
-  MULTISIG_CONTRACT_STORAGE_KEY,
-  NOTIFIED_MOVEMENTS_KEY,
-  WALLET_SETTINGS_STORAGE_KEY,
-  PENDING_RECOVERY_KEY,
-  ORIGIN_PERMISSIONS_STORAGE_KEY,
-  BACKUP_LAST_EXPORTED_KEY,
-  OFFRAMP_ACTIVE_ORDER_KEY,
-  OFFRAMP_DEPOSIT_ADDRESSES_KEY,
-  FEE_PAYER_SOURCE_KEY,
-  RECOVERY_SERVERS_KEY,
-] as const;
+export function walletCacheKeys(): readonly string[] {
+  return [
+    OUTBOX_STORAGE_KEY,
+    WALLETCONNECT_SESSIONS_KEY,
+    MULTISIG_CONTRACT_STORAGE_KEY,
+    NOTIFIED_MOVEMENTS_KEY,
+    WALLET_SETTINGS_STORAGE_KEY,
+    PENDING_RECOVERY_KEY,
+    ORIGIN_PERMISSIONS_STORAGE_KEY,
+    BACKUP_LAST_EXPORTED_KEY,
+    OFFRAMP_ACTIVE_ORDER_KEY,
+    OFFRAMP_DEPOSIT_ADDRESSES_KEY,
+    FEE_PAYER_SOURCE_KEY,
+    RECOVERY_SERVERS_KEY,
+  ];
+}
 
 /**
- * Of {@link WALLET_CACHE_KEYS}, the keys whose owner namespaces them per
- * network. {@link resetWallet} removes the ACTIVE network's variant of each, so
- * clearing one network's wallet never takes the other network's state with it.
+ * Of {@link walletCacheKeys}, the keys whose owner namespaces them per network.
+ * {@link resetWallet} removes the ACTIVE network's variant of each, so clearing
+ * one network's wallet never takes the other network's state with it. Deferred
+ * to call time for the same import-cycle reason as {@link walletCacheKeys}.
  */
-export const NETWORK_SCOPED_WALLET_CACHE_KEYS: ReadonlySet<string> = new Set([
-  FEE_PAYER_SOURCE_KEY,
-]);
+export function networkScopedWalletCacheKeys(): ReadonlySet<string> {
+  return new Set([FEE_PAYER_SOURCE_KEY]);
+}
 
 /** Wipe the ACTIVE NETWORK's stored wallet identifiers only. */
 export async function clearWalletStore(): Promise<void> {
@@ -216,11 +229,12 @@ export async function resetWallet(): Promise<void> {
   // miss the one on a mainnet reset. Missing it left the next mainnet wallet
   // labelled with the fee-payer provenance of the wallet that was just reset.
   const suffix = getNetworkName() === 'mainnet' ? '_mainnet' : '';
+  const networkScoped = networkScopedWalletCacheKeys();
   await Promise.all([
     clearWalletStore(),
     Promise.all(SESSION_KEYS.map((k) => deleteSecureItem(k))),
-    ...WALLET_CACHE_KEYS.map((k) =>
-      NETWORK_SCOPED_WALLET_CACHE_KEYS.has(k)
+    ...walletCacheKeys().map((k) =>
+      networkScoped.has(k)
         ? AsyncStorage.removeItem(`${k}${suffix}`)
         : AsyncStorage.removeItem(k)
     ),

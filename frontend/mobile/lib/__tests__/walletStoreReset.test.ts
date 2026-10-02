@@ -30,13 +30,13 @@ import { SecureKey } from '../storage';
 import {
   SDK_KEYS,
   SESSION_KEYS,
-  WALLET_CACHE_KEYS,
   WALLET_SESSION_SIGNER_SECRET_KEY,
   clearWalletStore,
   resetWallet,
+  walletCacheKeys,
 } from '../walletStore';
 // Imported from the modules that own them, NOT from `walletStore`, so a key
-// forgotten from WALLET_CACHE_KEYS fails these tests instead of asserting the
+// forgotten from walletCacheKeys() fails these tests instead of asserting the
 // implementation against itself. The secure-store side gets the same property
 // from `Object.values(SecureKey)` below.
 import { OUTBOX_STORAGE_KEY } from '../outbox';
@@ -56,7 +56,7 @@ const SECURE_WALLET_KEYS = [...SECURE_IDENTITY_KEYS, ...SESSION_KEYS];
 
 /**
  * Every AsyncStorage key a reset is responsible for, read from its owning
- * module. Kept independent of {@link WALLET_CACHE_KEYS} on purpose: if the two
+ * module. Kept independent of {@link walletCacheKeys} on purpose: if the two
  * ever disagree, the assertion below fails and names the oversight.
  */
 const WALLET_DERIVED_ASYNC_KEYS = [
@@ -75,7 +75,7 @@ const WALLET_DERIVED_ASYNC_KEYS = [
 ];
 
 /** AsyncStorage keys that derail a re-created wallet if left behind. */
-const ASYNC_WALLET_KEYS = [...SDK_KEYS, ...WALLET_CACHE_KEYS];
+const ASYNC_WALLET_KEYS = [...SDK_KEYS, ...walletCacheKeys()];
 
 // Presentation state, deliberately not wallet state.
 const UNRELATED_KEY = 'veil_seen_welcome';
@@ -99,7 +99,26 @@ describe('resetWallet', () => {
   it('covers every wallet-derived AsyncStorage key its owning module defines', () => {
     // `walletStore` imports these same constants, so this is the check that a
     // newly added wallet-derived key was not silently left out of the reset.
-    expect([...WALLET_CACHE_KEYS].sort()).toEqual([...WALLET_DERIVED_ASYNC_KEYS].sort());
+    expect([...walletCacheKeys()].sort()).toEqual([...WALLET_DERIVED_ASYNC_KEYS].sort());
+  });
+
+  it('resolves every key even when an owning module is what loads walletStore', async () => {
+    // `walletConnect`, `recovery` and `feePayerSource` import from `walletStore`,
+    // so importing their key constants into `walletStore` closes an import cycle.
+    // Entering that cycle from the OTHER side used to leave the list holding
+    // `undefined` for those keys, and a reset then deleted the literal key
+    // "undefined" while `veil_fee_payer_source` stayed on the device. The rest of
+    // this file imports `walletStore` first, which hides it, so force the bad
+    // order here. `walletCacheKeys()` reads the constants at call time, which is
+    // what makes the order stop mattering.
+    jest.resetModules();
+    await jest.isolateModulesAsync(async () => {
+      const owner = require('../feePayerSource') as typeof import('../feePayerSource');
+      const store = require('../walletStore') as typeof import('../walletStore');
+      expect(store.walletCacheKeys()).toContain(owner.FEE_PAYER_SOURCE_KEY);
+      expect(store.walletCacheKeys().filter((k) => typeof k !== 'string')).toEqual([]);
+      expect([...store.networkScopedWalletCacheKeys()]).toEqual([owner.FEE_PAYER_SOURCE_KEY]);
+    });
   });
 
   it('clears every wallet key — secure store, SDK keys, session and cached state', async () => {
