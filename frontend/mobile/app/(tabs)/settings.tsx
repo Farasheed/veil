@@ -88,6 +88,11 @@ export default function SettingsScreen() {
     { key: 'lock', title: 'Security & lock', subtitle: 'Auto-lock after inactivity', onPress: () => router.push('/settings/security') },
     { key: 'privacy', title: 'Privacy', subtitle: 'Private payments and crash reporting', onPress: () => router.push('/settings/privacy') },
     { key: 'dapps', title: 'Connected dApps', subtitle: 'Sites with permission, and revoke them', onPress: () => router.push('/settings/permissions') },
+    // Reset lives on its own screen now, reachable on BOTH networks. It used to
+    // sit in the testnet-only Developer group, which left a mainnet user (real
+    // funds) with no supported way to start over. The danger screen owns the
+    // typed confirmation and the backup-first path.
+    { key: 'danger', title: 'Danger zone', subtitle: 'Reset this device’s wallet', onPress: () => router.push('/settings/danger') },
   ];
 
   // Live notification preferences.

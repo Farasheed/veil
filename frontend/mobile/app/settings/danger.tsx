@@ -27,8 +27,10 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 
+import { FlowHeader } from '../../components/FlowHeader';
 import { useWallet } from '../../components/WalletProvider';
 import { useTheme } from '../../hooks/useTheme';
 import type { ThemeColors } from '../../lib/theme';
@@ -93,14 +95,20 @@ export default function DangerZoneScreen() {
   }
 
   return (
-    <ScrollView
-      style={styles.screen}
-      contentContainerStyle={styles.content}
-      keyboardShouldPersistTaps="handled"
-      showsVerticalScrollIndicator={false}
-      testID="danger-screen"
-    >
-      <Text style={styles.title}>Danger zone</Text>
+    // SafeAreaView + FlowHeader, matching app/settings/network.tsx. Pushed
+    // screens render with headerShown:false, so without the top inset the title
+    // sat under the status bar and, with no header, the only visible action on
+    // this screen was Reset wallet — on iOS there was no back affordance at all.
+    <SafeAreaView style={styles.screen} edges={['top']}>
+      <View style={styles.header}>
+        <FlowHeader title="Danger zone" />
+      </View>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+        testID="danger-screen"
+      >
       <Text style={styles.subtitle}>
         Irreversible actions for {onTestnet ? 'your testnet wallet' : 'your MAINNET wallet'}.
       </Text>
@@ -202,7 +210,8 @@ export default function DangerZoneScreen() {
           )}
         </Pressable>
       </View>
-    </ScrollView>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
@@ -212,15 +221,14 @@ const createStyles = (colors: ThemeColors) =>
       backgroundColor: colors.background,
       flex: 1,
     },
+    header: {
+      paddingHorizontal: 20,
+      paddingTop: 16,
+    },
     content: {
       gap: 16,
       padding: 24,
       paddingBottom: 48,
-    },
-    title: {
-      color: colors.danger,
-      fontFamily: fontFamily.heading,
-      fontSize: 28,
     },
     subtitle: {
       color: colors.textSecondary,

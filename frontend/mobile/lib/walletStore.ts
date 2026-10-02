@@ -3,6 +3,19 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SecureKey, getSecureItem, setSecureItem, deleteSecureItem } from './storage';
 import { getNetworkName, hydrateNetwork } from './network';
 import { clearSppDatabase } from './privacy/storage';
+// Wallet-derived AsyncStorage keys, imported from the module that owns each one
+// rather than repeated as string literals. A rename is then a single edit, and
+// leaving a key out of WALLET_CACHE_KEYS has to be an explicit decision — the
+// reset test fails until the list matches the owners.
+import { OUTBOX_STORAGE_KEY } from './outbox';
+import { WALLETCONNECT_SESSIONS_KEY } from './walletConnect';
+import { MULTISIG_CONTRACT_STORAGE_KEY } from './multisig';
+import { NOTIFIED_MOVEMENTS_KEY } from './notifiedMovements';
+import { WALLET_SETTINGS_STORAGE_KEY, BACKUP_LAST_EXPORTED_KEY } from './backupFile';
+import { PENDING_RECOVERY_KEY, RECOVERY_SERVERS_KEY } from './recovery';
+import { ORIGIN_PERMISSIONS_STORAGE_KEY } from './permissions';
+import { OFFRAMP_ACTIVE_ORDER_KEY, OFFRAMP_DEPOSIT_ADDRESSES_KEY } from './offramp';
+import { FEE_PAYER_SOURCE_KEY } from './feePayerSource';
 
 /**
  * Thin, typed accessors for the wallet identifiers the app keeps on the device.
@@ -129,21 +142,48 @@ export const SESSION_KEYS = [
  * Cached, wallet-derived AsyncStorage state.
  *
  * None of these are wallet identity, but all of them describe a wallet that is
- * about to cease to exist: a queued spend, apps still connected to it, its
- * multisig contract, a pending recovery, its seen-notifications watermark and
- * its non-secret settings. Left behind, they make a "reset" wallet that still
- * believes it has an outbox, sessions or a contract — the half-reset the danger
- * screen exists to prevent. These keys are not network-namespaced in the rest of
- * the app, so they are removed unsuffixed.
+ * about to cease to exist: a queued spend, apps still connected to it (both
+ * WalletConnect sessions and per-origin dApp grants), its multisig contract, a
+ * pending recovery and the server list it was configured with, its
+ * seen-notifications watermark, its non-secret settings, the last backup it
+ * exported, an in-flight cash-out with the deposit addresses it has used, and
+ * how its fee payer was derived. Left behind, they make a "reset" wallet that
+ * still believes it has an outbox, connections or a contract — or, worse, one
+ * that reports a backup date belonging to a wallet that no longer exists. That
+ * is the half-reset the danger screen exists to prevent.
+ *
+ * The names are imported from the module that owns each key, never repeated as
+ * string literals, so a rename is one edit and a forgotten wallet-derived key
+ * has to be an explicit decision rather than an oversight.
+ *
+ * Most are removed unsuffixed, because they do not carry a per-network suffix
+ * in the rest of the app. The few that do are listed in
+ * {@link NETWORK_SCOPED_WALLET_CACHE_KEYS} and removed with the active network's
+ * suffix, so a reset never reaches the other network's copy.
  */
 export const WALLET_CACHE_KEYS = [
-  'veil_outbox_v1',
-  'veil_walletconnect_sessions',
-  'veil_multisig_contract',
-  'veil_notified_movements',
-  'veil_wallet_settings',
-  'veil_pending_recovery_v1',
+  OUTBOX_STORAGE_KEY,
+  WALLETCONNECT_SESSIONS_KEY,
+  MULTISIG_CONTRACT_STORAGE_KEY,
+  NOTIFIED_MOVEMENTS_KEY,
+  WALLET_SETTINGS_STORAGE_KEY,
+  PENDING_RECOVERY_KEY,
+  ORIGIN_PERMISSIONS_STORAGE_KEY,
+  BACKUP_LAST_EXPORTED_KEY,
+  OFFRAMP_ACTIVE_ORDER_KEY,
+  OFFRAMP_DEPOSIT_ADDRESSES_KEY,
+  FEE_PAYER_SOURCE_KEY,
+  RECOVERY_SERVERS_KEY,
 ] as const;
+
+/**
+ * Of {@link WALLET_CACHE_KEYS}, the keys whose owner namespaces them per
+ * network. {@link resetWallet} removes the ACTIVE network's variant of each, so
+ * clearing one network's wallet never takes the other network's state with it.
+ */
+export const NETWORK_SCOPED_WALLET_CACHE_KEYS: ReadonlySet<string> = new Set([
+  FEE_PAYER_SOURCE_KEY,
+]);
 
 /** Wipe the ACTIVE NETWORK's stored wallet identifiers only. */
 export async function clearWalletStore(): Promise<void> {
@@ -171,9 +211,18 @@ export async function clearWalletStore(): Promise<void> {
  * is for. Callers are responsible for routing back to onboarding afterwards.
  */
 export async function resetWallet(): Promise<void> {
+  // Network-scoped cache keys (the fee-payer provenance record) are stored
+  // under the active network's suffix, so the unsuffixed removal below would
+  // miss the one on a mainnet reset. Missing it left the next mainnet wallet
+  // labelled with the fee-payer provenance of the wallet that was just reset.
+  const suffix = getNetworkName() === 'mainnet' ? '_mainnet' : '';
   await Promise.all([
     clearWalletStore(),
     Promise.all(SESSION_KEYS.map((k) => deleteSecureItem(k))),
-    ...WALLET_CACHE_KEYS.map((k) => AsyncStorage.removeItem(k)),
+    ...WALLET_CACHE_KEYS.map((k) =>
+      NETWORK_SCOPED_WALLET_CACHE_KEYS.has(k)
+        ? AsyncStorage.removeItem(`${k}${suffix}`)
+        : AsyncStorage.removeItem(k)
+    ),
   ]);
 }

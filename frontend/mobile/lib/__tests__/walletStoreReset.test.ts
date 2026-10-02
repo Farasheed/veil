@@ -35,11 +35,44 @@ import {
   clearWalletStore,
   resetWallet,
 } from '../walletStore';
+// Imported from the modules that own them, NOT from `walletStore`, so a key
+// forgotten from WALLET_CACHE_KEYS fails these tests instead of asserting the
+// implementation against itself. The secure-store side gets the same property
+// from `Object.values(SecureKey)` below.
+import { OUTBOX_STORAGE_KEY } from '../outbox';
+import { WALLETCONNECT_SESSIONS_KEY } from '../walletConnect';
+import { MULTISIG_CONTRACT_STORAGE_KEY } from '../multisig';
+import { NOTIFIED_MOVEMENTS_KEY } from '../notifiedMovements';
+import { WALLET_SETTINGS_STORAGE_KEY, BACKUP_LAST_EXPORTED_KEY } from '../backupFile';
+import { PENDING_RECOVERY_KEY, RECOVERY_SERVERS_KEY } from '../recovery';
+import { ORIGIN_PERMISSIONS_STORAGE_KEY } from '../permissions';
+import { OFFRAMP_ACTIVE_ORDER_KEY, OFFRAMP_DEPOSIT_ADDRESSES_KEY } from '../offramp';
+import { FEE_PAYER_SOURCE_KEY } from '../feePayerSource';
 
 /** The active wallet's own secure-store identifiers. */
 const SECURE_IDENTITY_KEYS = Object.values(SecureKey);
 /** Secure-store keys that identify the active wallet or its signer session. */
 const SECURE_WALLET_KEYS = [...SECURE_IDENTITY_KEYS, ...SESSION_KEYS];
+
+/**
+ * Every AsyncStorage key a reset is responsible for, read from its owning
+ * module. Kept independent of {@link WALLET_CACHE_KEYS} on purpose: if the two
+ * ever disagree, the assertion below fails and names the oversight.
+ */
+const WALLET_DERIVED_ASYNC_KEYS = [
+  OUTBOX_STORAGE_KEY,
+  WALLETCONNECT_SESSIONS_KEY,
+  MULTISIG_CONTRACT_STORAGE_KEY,
+  NOTIFIED_MOVEMENTS_KEY,
+  WALLET_SETTINGS_STORAGE_KEY,
+  PENDING_RECOVERY_KEY,
+  ORIGIN_PERMISSIONS_STORAGE_KEY,
+  BACKUP_LAST_EXPORTED_KEY,
+  OFFRAMP_ACTIVE_ORDER_KEY,
+  OFFRAMP_DEPOSIT_ADDRESSES_KEY,
+  FEE_PAYER_SOURCE_KEY,
+  RECOVERY_SERVERS_KEY,
+];
 
 /** AsyncStorage keys that derail a re-created wallet if left behind. */
 const ASYNC_WALLET_KEYS = [...SDK_KEYS, ...WALLET_CACHE_KEYS];
@@ -63,6 +96,12 @@ beforeEach(async () => {
 });
 
 describe('resetWallet', () => {
+  it('covers every wallet-derived AsyncStorage key its owning module defines', () => {
+    // `walletStore` imports these same constants, so this is the check that a
+    // newly added wallet-derived key was not silently left out of the reset.
+    expect([...WALLET_CACHE_KEYS].sort()).toEqual([...WALLET_DERIVED_ASYNC_KEYS].sort());
+  });
+
   it('clears every wallet key — secure store, SDK keys, session and cached state', async () => {
     await seedWallet();
 
